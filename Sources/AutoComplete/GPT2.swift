@@ -21,13 +21,20 @@ class GPT2 {
         case topP(Double)
     }
     
-    private let model = try! gpt2_64_12_2(configuration: .init())
+    /*
+     Because of GPT model size is too big, i cannot add model to github
+     You should download model on https://github.com/huggingface/swift-coreml-transformers/tree/master/Resources
+     Or generate by yourself
+     */
+    private let model: gpt2_64_12_2
+    
     public let tokenizer = GPT2Tokenizer()
     public let seqLen = 64
     private let strategy: DecodingStrategy
     
-    init(strategy: DecodingStrategy = .greedy) {
+    init(strategy: DecodingStrategy = .greedy) throws {
         self.strategy = strategy
+        model = try gpt2_64_12_2(configuration: .init())
     }
     
     /// Main prediction loop:
@@ -48,35 +55,40 @@ class GPT2 {
             Array(0..<seqLen)
         )
         
-        let output = try! model.prediction(input_ids: input_ids, position_ids: position_ids)
-        
-        let outputLogits = MLMultiArray.slice(
-            output.output_logits,
-            indexing: [.select(0), .select(maxTokens.count - 1), .slice, .select(0), .select(0)]
-        )
-        
-        switch strategy {
-        case .greedy:
-            let nextToken = Math.argmax(outputLogits)
-            return nextToken.0
-        case .topK(let k):
-            let logits = MLMultiArray.toDoubleArray(outputLogits)
-            let topk = Math.topK(arr: logits, k: k)
-            let sampleIndex = Math.sample(indexes: topk.indexes, probs: topk.probs)
-            return sampleIndex
-        case .topP(_):
-            fatalError("topP is not implemented yet")
+        do {
+            let output = try model.prediction(input_ids: input_ids, position_ids: position_ids)
+            
+            let outputLogits = MLMultiArray.slice(
+                output.output_logits,
+                indexing: [.select(0), .select(maxTokens.count - 1), .slice, .select(0), .select(0)]
+            )
+            
+            switch strategy {
+            case .greedy:
+                let nextToken = Math.argmax(outputLogits)
+                return nextToken.0
+            case .topK(let k):
+                let logits = MLMultiArray.toDoubleArray(outputLogits)
+                let topk = Math.topK(arr: logits, k: k)
+                let sampleIndex = Math.sample(indexes: topk.indexes, probs: topk.probs)
+                return sampleIndex
+            case .topP(_):
+                fatalError("topP is not implemented yet")
+            }
+        } catch let error {
+            print(error)
+            return 0
         }
     }
     
     
-    /// Main generation loop.
+    /// Main generation.
     ///
-    /// Will generate next `nTokens` (defaults to 10).
-    /// Calls an incremental `callback` for each new token, then returns the generated string at the end.
+    /// Will generate next `nTokens`.
     ///
-    func generate(text: String, nTokens: Int = 10, callback: ((String, Double) -> Void)?) -> String {
+    func generate(text: String) -> String {
         var tokens = tokenizer.encode(text: text)
+        let nTokens = tokens.count
         var newTokens: [Int] = []
         for i in 0..<nTokens {
             let (nextToken, time) = Utils.time {
@@ -86,9 +98,6 @@ class GPT2 {
             tokens.append(nextToken)
             newTokens.append(nextToken)
             print("🦄 <\(time)s>", i, nextToken, tokens.count)
-            callback?(
-                tokenizer.decode(tokens: newTokens), time
-            )
         }
         return tokenizer.decode(tokens: newTokens)
     }
