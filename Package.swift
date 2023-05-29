@@ -16,7 +16,11 @@ let package = Package(
     targets: [
         .target(
             name: "AutoComplete",
-            dependencies: []
+            dependencies: [],
+            resources: [
+                .process("gpt2-merges.txt"),
+                .process("gpt2-vocab.json")
+            ]
         ),
         .testTarget(
             name: "AutoCompleteTests",
